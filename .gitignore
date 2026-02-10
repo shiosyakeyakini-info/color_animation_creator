@@ -1,0 +1,27 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / Editor
+.vs/
+.idea/
+*.suo
+*.user
+*.csproj
+*.sln
+
+# Unity local cache
+*.pidb
+*.unityproj
+
+# Temp / build artifacts
+[Bb]uild/
+[Oo]bj/
+
+# Claude Code local settings
+.claude/
+
+# Accidentally created Windows reserved filename
+nul
+nul.meta
