@@ -1,6 +1,6 @@
 # Color Animation Creator
 
-VRChat向けのModular Avatarコンポーネント。Radial Menuでliltoonシェーダーの任意の色プロパティの色相を変更できます。
+VRChat向けのNDMFプラグイン。Radial Menuでliltoonシェーダーの任意の色プロパティの色相を変更できます。
 
 ## 特徴
 
@@ -29,7 +29,7 @@ VRChat向けのModular Avatarコンポーネント。Radial Menuでliltoonシェ
 
 1. **コンポーネントの追加**
    - アバターのヒエラルキー内の任意のGameObjectを選択
-   - `Add Component` → `Modular Avatar` → `Color Hue Animator` を追加
+   - `Add Component` → `Color Animation Creator` → `Color Hue Animator` を追加
 
 2. **ターゲット設定**
    - `Target Renderer`: 色相を変更したいRendererを指定

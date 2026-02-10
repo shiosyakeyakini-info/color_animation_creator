@@ -3,7 +3,7 @@ using VRC.SDKBase;
 
 namespace ShioShakeYakiNi.ColorAnimationCreator.Runtime
 {
-    [AddComponentMenu("Modular Avatar/Color Hue Animator")]
+    [AddComponentMenu("Color Animation Creator/Color Hue Animator")]
     [DisallowMultipleComponent]
     public class ColorHueAnimator : MonoBehaviour, IEditorOnly
     {
