@@ -558,9 +558,6 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
         {
             var gameObject = animator.gameObject;
 
-            // MenuInstaller（メニューをアバターのExpression Menuにバインドするために必要）
-            gameObject.AddComponent<ModularAvatarMenuInstaller>();
-
             // MergeAnimator
             var mergeAnimator = gameObject.AddComponent<ModularAvatarMergeAnimator>();
             mergeAnimator.animator = controller;

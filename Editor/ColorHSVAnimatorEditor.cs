@@ -205,7 +205,7 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
 
         private void DrawTargetsHeader(Rect rect)
         {
-            EditorGUI.LabelField(rect, "マテリアルターゲット一覧");
+            EditorGUI.LabelField(rect, "対象マテリアル");
         }
 
         private float GetTargetElementHeight(int index)
