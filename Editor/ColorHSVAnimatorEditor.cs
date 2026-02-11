@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using nadena.dev.modular_avatar.core;
 using ShioShakeYakiNi.ColorAnimationCreator.Runtime;
 using UnityEditor;
 using UnityEditorInternal;
@@ -39,23 +40,23 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             ("_Color",            "メインカラー"),
             ("_Color2nd",         "メインカラー 2nd"),
             ("_Color3rd",         "メインカラー 3rd"),
-            ("_EmissionColor",    "エミッション"),
-            ("_Emission2ndColor", "エミッション 2nd"),
+            ("_EmissionColor",    "発光色"),
+            ("_Emission2ndColor", "発光色 2nd"),
             ("_MatCapColor",      "マットキャップ"),
             ("_MatCap2ndColor",   "マットキャップ 2nd"),
             ("_RimColor",         "リムライト"),
             ("_RimIndirColor",    "リムライト (逆光)"),
             ("_RimShadeColor",    "リムシェード"),
             ("_BacklightColor",   "バックライト"),
-            ("_ShadowColor",      "影色 1st"),
-            ("_Shadow2ndColor",   "影色 2nd"),
-            ("_Shadow3rdColor",   "影色 3rd"),
-            ("_OutlineColor",     "アウトライン"),
-            ("_OutlineLitColor",  "アウトライン (ライト)"),
+            ("_ShadowColor",      "影色1"),
+            ("_Shadow2ndColor",   "影色2"),
+            ("_Shadow3rdColor",   "影色3"),
+            ("_OutlineColor",     "輪郭線"),
+            ("_OutlineLitColor",  "輪郭線 (ライト)"),
             ("_GlitterColor",     "ラメ"),
             ("_ReflectionColor",  "反射"),
             ("_MainTexHSVG",      "メインテクスチャ HSVG"),
-            ("_OutlineTexHSVG",   "アウトラインテクスチャ HSVG"),
+            ("_OutlineTexHSVG",   "輪郭線テクスチャ HSVG"),
         };
 
         private static readonly string[] DropdownLabels;
@@ -427,6 +428,16 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
 
         private void DrawValidationResult(ColorHSVAnimator animator)
         {
+            // MA Menu Installer チェック
+            var menuInstaller = animator.GetComponentInParent<ModularAvatarMenuInstaller>();
+            if (menuInstaller == null)
+            {
+                EditorGUILayout.HelpBox(
+                    "警告: このGameObjectまたは親の階層にMA Menu Installerが見つかりません。\n" +
+                    "メニューを表示するにはMA Menu Installerが必要です。",
+                    MessageType.Warning);
+            }
+
             string validationError = animator.GetValidationError();
             if (!string.IsNullOrEmpty(validationError))
             {
