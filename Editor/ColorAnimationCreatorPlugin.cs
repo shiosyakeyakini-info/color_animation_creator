@@ -294,7 +294,7 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
         }
 
         /// <summary>
-        /// HSVG用: 各有効軸に対して2-child 1D BlendTreeを構築する
+        /// HSVG用: 各有効軸に対して3-child 1D BlendTreeを構築する（param 0.5 = baseHSVG）
         /// </summary>
         private List<(string paramName, BlendTree motion)> BuildHSVGLayerMotions(
             BuildContext ctx, ColorHSVAnimator animator, List<ResolvedTarget> targets)
@@ -303,64 +303,48 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
 
             if (animator.enableHue)
             {
-                // Hue: -0.5 ~ 0.5 (param 0→-0.5, param 0.5→0.0, param 1→0.5)
-                var clipMin = CreateHSVGComponentClip(ctx, targets, "x", -0.5f,
+                // Hue: param 0→(baseH-0.5), param 0.5→baseH, param 1→(baseH+0.5)
+                var clipMin = CreateHSVGComponentClipAdditive(ctx, targets, "x", -0.5f,
                     $"{animator.gameObject.name}_HSVG_Hue_min");
-                var clipMax = CreateHSVGComponentClip(ctx, targets, "x", 0.5f,
+                var clipBase = CreateHSVGComponentClipAdditive(ctx, targets, "x", 0.0f,
+                    $"{animator.gameObject.name}_HSVG_Hue_base");
+                var clipMax = CreateHSVGComponentClipAdditive(ctx, targets, "x", 0.5f,
                     $"{animator.gameObject.name}_HSVG_Hue_max");
 
-                var tree = new BlendTree
-                {
-                    name = $"HSVG_Hue_{animator.hueParameterName}",
-                    blendType = BlendTreeType.Simple1D,
-                    blendParameter = animator.hueParameterName,
-                    useAutomaticThresholds = false
-                };
-                tree.AddChild(clipMin, 0f);
-                tree.AddChild(clipMax, 1f);
-                ctx.AssetSaver.SaveAsset(tree);
+                var tree = CreateCentered1DBT(ctx, animator.hueParameterName,
+                    clipMin, clipBase, clipMax, $"HSVG_Hue_{animator.hueParameterName}");
 
                 result.Add((animator.hueParameterName, tree));
             }
 
             if (animator.enableSaturation)
             {
-                var clipMin = CreateHSVGComponentClip(ctx, targets, "y", 0.0f,
+                // Saturation: param 0→0.0, param 0.5→baseS, param 1→2.0
+                var clipMin = CreateHSVGComponentClipAbsolute(ctx, targets, "y", 0.0f,
                     $"{animator.gameObject.name}_HSVG_Sat_0");
-                var clipMax = CreateHSVGComponentClip(ctx, targets, "y", 2.0f,
+                var clipBase = CreateHSVGComponentClipBase(ctx, targets, "y",
+                    $"{animator.gameObject.name}_HSVG_Sat_base");
+                var clipMax = CreateHSVGComponentClipAbsolute(ctx, targets, "y", 2.0f,
                     $"{animator.gameObject.name}_HSVG_Sat_2");
 
-                var tree = new BlendTree
-                {
-                    name = $"HSVG_Sat_{animator.saturationParameterName}",
-                    blendType = BlendTreeType.Simple1D,
-                    blendParameter = animator.saturationParameterName,
-                    useAutomaticThresholds = false
-                };
-                tree.AddChild(clipMin, 0f);
-                tree.AddChild(clipMax, 1f);
-                ctx.AssetSaver.SaveAsset(tree);
+                var tree = CreateCentered1DBT(ctx, animator.saturationParameterName,
+                    clipMin, clipBase, clipMax, $"HSVG_Sat_{animator.saturationParameterName}");
 
                 result.Add((animator.saturationParameterName, tree));
             }
 
             if (animator.enableValue)
             {
-                var clipMin = CreateHSVGComponentClip(ctx, targets, "z", 0.0f,
+                // Value: param 0→0.0, param 0.5→baseV, param 1→2.0
+                var clipMin = CreateHSVGComponentClipAbsolute(ctx, targets, "z", 0.0f,
                     $"{animator.gameObject.name}_HSVG_Val_0");
-                var clipMax = CreateHSVGComponentClip(ctx, targets, "z", 2.0f,
+                var clipBase = CreateHSVGComponentClipBase(ctx, targets, "z",
+                    $"{animator.gameObject.name}_HSVG_Val_base");
+                var clipMax = CreateHSVGComponentClipAbsolute(ctx, targets, "z", 2.0f,
                     $"{animator.gameObject.name}_HSVG_Val_2");
 
-                var tree = new BlendTree
-                {
-                    name = $"HSVG_Val_{animator.valueParameterName}",
-                    blendType = BlendTreeType.Simple1D,
-                    blendParameter = animator.valueParameterName,
-                    useAutomaticThresholds = false
-                };
-                tree.AddChild(clipMin, 0f);
-                tree.AddChild(clipMax, 1f);
-                ctx.AssetSaver.SaveAsset(tree);
+                var tree = CreateCentered1DBT(ctx, animator.valueParameterName,
+                    clipMin, clipBase, clipMax, $"HSVG_Val_{animator.valueParameterName}");
 
                 result.Add((animator.valueParameterName, tree));
             }
@@ -369,15 +353,46 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
         }
 
         /// <summary>
-        /// HSVG用: 指定コンポーネント(.x/.y/.z)の値を全ターゲットにセットするクリップ
+        /// HSVG用: 加算型（Hue用） - 各ターゲットの baseHSVG.component + offset
+        /// </summary>
+        private AnimationClip CreateHSVGComponentClipAdditive(
+            BuildContext ctx, List<ResolvedTarget> targets,
+            string component, float offset, string clipName)
+        {
+            return CreateHSVGComponentClipFunc(ctx, targets, component, clipName,
+                (baseVal) => baseVal + offset);
+        }
+
+        /// <summary>
+        /// HSVG用: 絶対値型（Sat/Val の端点用） - 全ターゲットに同じ絶対値
+        /// </summary>
+        private AnimationClip CreateHSVGComponentClipAbsolute(
+            BuildContext ctx, List<ResolvedTarget> targets,
+            string component, float value, string clipName)
+        {
+            return CreateHSVGComponentClipFunc(ctx, targets, component, clipName,
+                (baseVal) => value);
+        }
+
+        /// <summary>
+        /// HSVG用: ベース値型（Sat/Val の中央用） - 各ターゲットの baseHSVG.component そのまま
+        /// </summary>
+        private AnimationClip CreateHSVGComponentClipBase(
+            BuildContext ctx, List<ResolvedTarget> targets,
+            string component, string clipName)
+        {
+            return CreateHSVGComponentClipFunc(ctx, targets, component, clipName,
+                (baseVal) => baseVal);
+        }
+
+        /// <summary>
+        /// HSVG用: 共通関数 - valueFunc で各ターゲットの値を計算
         /// Gamma(.w)は常に1.0を含める（WD ON環境でのリセット防止）
         /// </summary>
-        private AnimationClip CreateHSVGComponentClip(
-            BuildContext ctx,
-            List<ResolvedTarget> targets,
-            string component,
-            float value,
-            string clipName)
+        private AnimationClip CreateHSVGComponentClipFunc(
+            BuildContext ctx, List<ResolvedTarget> targets,
+            string component, string clipName,
+            Func<float, float> valueFunc)
         {
             var clip = new AnimationClip
             {
@@ -393,8 +408,19 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                     ? $"material.{target.colorPropertyName}"
                     : $"material[{target.materialIndex}].{target.colorPropertyName}";
 
+                // baseHSVG から該当コンポーネントを取得
+                float baseValue = component switch
+                {
+                    "x" => target.baseHSVG.x,
+                    "y" => target.baseHSVG.y,
+                    "z" => target.baseHSVG.z,
+                    _ => 1.0f
+                };
+
+                float finalValue = valueFunc(baseValue);
+
                 // 対象コンポーネントの値をセット
-                SetConstantCurve(clip, target.path, $"{propertyPrefix}.{component}", value, duration);
+                SetConstantCurve(clip, target.path, $"{propertyPrefix}.{component}", finalValue, duration);
 
                 // Gamma(.w)を常に1.0でセット（WD ON時に0にリセットされるのを防止）
                 if (component != "w")

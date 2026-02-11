@@ -44,8 +44,8 @@ ColorHSVAnimator (MonoBehaviour, IEditorOnly)
 - 1つのコンポーネントで複数の Renderer/マテリアルスロット/色プロパティを同時に制御
 - Color型とHSVG型のターゲットを同一コンポーネント内で混在可能
 - 全ターゲットが同じ HSV パラメータで連動して色変更される
-- 各ターゲットは独自の baseH/baseS/baseV を持ち、色相オフセットは各自の基準から適用
-- デフォルトパラメータ値: 全軸 0.5 で統一（Color: 3-child centered BT, HSVG: 線形マッピング中央）
+- 各ターゲットは独自の baseH/baseS/baseV (Color型) または baseHSVG (HSVG型) を持ち、オフセットは各自の基準から適用
+- デフォルトパラメータ値: 全軸 0.5 で統一（Color/HSVG 共に 3-child centered BT で param 0.5 = 元の見た目を再現）
 
 ### 旧データからのマイグレーション
 
@@ -92,17 +92,19 @@ Sat/Val 有効時はクリップ数が最大 4×(hueSteps+1) + 3 になる。
 
 ```
 AnimatorController
-├── Layer "HSVG_{hueParam}"  ← Hue (.x): -0.5~0.5
-│   └── 1D BT (2 children: clip(.x=-0.5), clip(.x=0.5))
-├── Layer "HSVG_{satParam}"  ← Saturation (.y): 0.0~2.0
-│   └── 1D BT (2 children: clip(.y=0), clip(.y=2))
-└── Layer "HSVG_{valParam}"  ← Value (.z): 0.0~2.0
-    └── 1D BT (2 children: clip(.z=0), clip(.z=2))
+├── Layer "HSVG_{hueParam}"  ← Hue (.x): baseH-0.5 ~ baseH+0.5
+│   └── 1D BT (3-child centered: clip(baseH-0.5), clip(baseH), clip(baseH+0.5))
+├── Layer "HSVG_{satParam}"  ← Saturation (.y): 0.0 ~ baseS ~ 2.0
+│   └── 1D BT (3-child centered: clip(0.0), clip(baseS), clip(2.0))
+└── Layer "HSVG_{valParam}"  ← Value (.z): 0.0 ~ baseV ~ 2.0
+    └── 1D BT (3-child centered: clip(0.0), clip(baseV), clip(2.0))
 ```
 
 - 各レイヤーは `writeDefaultValues = false` で、未制御コンポーネント（.w Gamma等）はマテリアルデフォルトを保持
-- 線形補間が正確なため、色相も2クリップで十分（RGB方式の37+クリップ不要）
-- デフォルト値: 全軸 0.5（Color/HSVG 共通。param 0.5 = 変化なし）
+- 3-child centered BT により、param 0.5 = マテリアルの元の baseHSVG 値を正確に再現
+- 各ターゲットが独自の baseHSVG を持つ場合も、クリップ内で個別に計算
+- Hue: 加算的 (baseH + offset)、Sat/Val: 端点固定 (0.0, 2.0) + 中央ベース値 (baseS/baseV)
+- デフォルト値: 全軸 0.5（Color/HSVG 共通。param 0.5 = 元の色/元のHSVG設定を再現）
 - ColorターゲットとHSVGターゲットは同一コンポーネント内で混在可能（別レイヤーで共存）
 - EditorCurveBinding: Color型は `.r/.g/.b`、Vector4型は `.x/.y/.z/.w`
 
@@ -124,9 +126,12 @@ AnimatorController
 ### デフォルトパラメータ値
 
 全軸 **0.5** で統一（Color / HSVG 共通）:
-- param 0.5 = 変化なし（元の色を再現）
+- param 0.5 = 変化なし（元の色/元のHSVG設定を再現）
 - Color: 3-child BT の中央ポイントで元の baseH/baseS/baseV を再現
-- HSVG: param 0.5 → Hue=0, Sat=1.0, Val=1.0（liltoon デフォルト）
+- HSVG: 3-child BT の中央ポイントで、マテリアルに設定されている baseHSVG 値を再現
+  - Hue: baseH + 0 = baseH
+  - Sat: baseS（マテリアルの現在値）
+  - Val: baseV（マテリアルの現在値）
 
 ### メニュー構造の分岐
 
