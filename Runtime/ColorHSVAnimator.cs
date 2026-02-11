@@ -145,11 +145,9 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Runtime
         [SerializeField, HideInInspector] private string colorPropertyName = "_EmissionColor";
         [SerializeField, HideInInspector] private bool _migrated = false;
 
-        [Header("Target Settings")]
         [Tooltip("色変更対象のマテリアルリスト")]
         public List<MaterialColorTarget> targets = new List<MaterialColorTarget>();
 
-        [Header("Hue")]
         [Tooltip("色相制御を有効化")]
         public bool enableHue = true;
 
@@ -157,32 +155,50 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Runtime
         [Range(8, 72)]
         public int hueSteps = 36;
 
-        [Tooltip("色相パラメータ名")]
-        public string hueParameterName = "HueRotation";
+        [Tooltip("色相パラメータ名（空の場合は自動生成）")]
+        public string hueParameterName = "";
 
-        [Header("Saturation")]
+        [Tooltip("色相パラメータを保存するか")]
+        public bool hueSaved = true;
+
+        [Tooltip("色相パラメータを同期するか")]
+        public bool hueSynced = true;
+
+        [Tooltip("色相メニューアイコン（オプション）")]
+        public Texture2D hueMenuIcon;
+
         [Tooltip("彩度制御を有効化")]
         public bool enableSaturation = false;
 
-        [Tooltip("彩度パラメータ名")]
-        public string saturationParameterName = "SaturationControl";
+        [Tooltip("彩度パラメータ名（空の場合は自動生成）")]
+        public string saturationParameterName = "";
 
-        [Header("Value (Brightness)")]
+        [Tooltip("彩度パラメータを保存するか")]
+        public bool saturationSaved = true;
+
+        [Tooltip("彩度パラメータを同期するか")]
+        public bool saturationSynced = true;
+
+        [Tooltip("彩度メニューアイコン（オプション）")]
+        public Texture2D saturationMenuIcon;
+
         [Tooltip("明度制御を有効化")]
         public bool enableValue = false;
 
-        [Tooltip("明度パラメータ名")]
-        public string valueParameterName = "ValueControl";
+        [Tooltip("明度パラメータ名（空の場合は自動生成）")]
+        public string valueParameterName = "";
 
-        [Header("Menu Settings")]
-        [Tooltip("パラメータを保存するか")]
-        public bool saved = true;
+        [Tooltip("明度パラメータを保存するか")]
+        public bool valueSaved = true;
 
-        [Tooltip("パラメータを同期するか")]
-        public bool synced = true;
+        [Tooltip("明度パラメータを同期するか")]
+        public bool valueSynced = true;
 
-        [Tooltip("メニューアイコン（オプション）")]
-        public Texture2D menuIcon;
+        [Tooltip("明度メニューアイコン（オプション）")]
+        public Texture2D valueMenuIcon;
+
+        [Tooltip("親メニューアイコン（複数軸有効時のサブメニュー用、オプション）")]
+        public Texture2D parentMenuIcon;
 
         /// <summary>
         /// 全ターゲットがHSVGプロパティかどうか
@@ -271,5 +287,32 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Runtime
 
             return null;
         }
+
+        /// <summary>
+        /// パラメータ名が空の場合、自動生成された名前を返します
+        /// </summary>
+        public string GetEffectiveParameterName(string paramName, string axisName)
+        {
+            if (string.IsNullOrWhiteSpace(paramName))
+            {
+                return $"{gameObject.name}_{axisName}";
+            }
+            return paramName;
+        }
+
+        /// <summary>
+        /// 実際に使用される色相パラメータ名を取得します
+        /// </summary>
+        public string GetEffectiveHueParameterName() => GetEffectiveParameterName(hueParameterName, "Hue");
+
+        /// <summary>
+        /// 実際に使用される彩度パラメータ名を取得します
+        /// </summary>
+        public string GetEffectiveSaturationParameterName() => GetEffectiveParameterName(saturationParameterName, "Saturation");
+
+        /// <summary>
+        /// 実際に使用される明度パラメータ名を取得します
+        /// </summary>
+        public string GetEffectiveValueParameterName() => GetEffectiveParameterName(valueParameterName, "Value");
     }
 }

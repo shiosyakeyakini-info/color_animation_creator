@@ -164,14 +164,14 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                     $"{name}_Black");
 
                 // 彩度 BT × 2（明度レベル別）
-                var satBT_bV = CreateCentered1DBT(ctx, animator.saturationParameterName,
-                    grayBaseV, m_bS_bV, m_fS_bV, $"Sat_{animator.saturationParameterName}_baseV");
-                var satBT_fV = CreateCentered1DBT(ctx, animator.saturationParameterName,
-                    white, m_bS_fV, m_fS_fV, $"Sat_{animator.saturationParameterName}_fullV");
+                var satBT_bV = CreateCentered1DBT(ctx, animator.GetEffectiveSaturationParameterName(),
+                    grayBaseV, m_bS_bV, m_fS_bV, $"Sat_{animator.GetEffectiveSaturationParameterName()}_baseV");
+                var satBT_fV = CreateCentered1DBT(ctx, animator.GetEffectiveSaturationParameterName(),
+                    white, m_bS_fV, m_fS_fV, $"Sat_{animator.GetEffectiveSaturationParameterName()}_fullV");
 
                 // 明度 BT
-                return CreateCentered1DBT(ctx, animator.valueParameterName,
-                    black, satBT_bV, satBT_fV, $"Value_{animator.valueParameterName}");
+                return CreateCentered1DBT(ctx, animator.GetEffectiveValueParameterName(),
+                    black, satBT_bV, satBT_fV, $"Value_{animator.GetEffectiveValueParameterName()}");
             }
             else if (eSat)
             {
@@ -181,8 +181,8 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                     t => { float v = t.baseV; return new Color(v, v, v); },
                     $"{name}_Gray");
 
-                return CreateCentered1DBT(ctx, animator.saturationParameterName,
-                    gray, m_bS, m_fS, $"Sat_{animator.saturationParameterName}");
+                return CreateCentered1DBT(ctx, animator.GetEffectiveSaturationParameterName(),
+                    gray, m_bS, m_fS, $"Sat_{animator.GetEffectiveSaturationParameterName()}");
             }
             else if (eVal)
             {
@@ -192,8 +192,8 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                     t => Color.black,
                     $"{name}_Black");
 
-                return CreateCentered1DBT(ctx, animator.valueParameterName,
-                    black, m_bV, m_fV, $"Value_{animator.valueParameterName}");
+                return CreateCentered1DBT(ctx, animator.GetEffectiveValueParameterName(),
+                    black, m_bV, m_fV, $"Value_{animator.GetEffectiveValueParameterName()}");
             }
             else
             {
@@ -239,9 +239,9 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
 
             var hueTree = new BlendTree
             {
-                name = $"Hue_{animator.hueParameterName}_{suffix}",
+                name = $"Hue_{animator.GetEffectiveHueParameterName()}_{suffix}",
                 blendType = BlendTreeType.Simple1D,
-                blendParameter = animator.hueParameterName,
+                blendParameter = animator.GetEffectiveHueParameterName(),
                 useAutomaticThresholds = false
             };
 
@@ -311,10 +311,10 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 var clipMax = CreateHSVGComponentClipAdditive(ctx, targets, "x", 0.5f,
                     $"{animator.gameObject.name}_HSVG_Hue_max");
 
-                var tree = CreateCentered1DBT(ctx, animator.hueParameterName,
-                    clipMin, clipBase, clipMax, $"HSVG_Hue_{animator.hueParameterName}");
+                var tree = CreateCentered1DBT(ctx, animator.GetEffectiveHueParameterName(),
+                    clipMin, clipBase, clipMax, $"HSVG_Hue_{animator.GetEffectiveHueParameterName()}");
 
-                result.Add((animator.hueParameterName, tree));
+                result.Add((animator.GetEffectiveHueParameterName(), tree));
             }
 
             if (animator.enableSaturation)
@@ -327,10 +327,10 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 var clipMax = CreateHSVGComponentClipAbsolute(ctx, targets, "y", 2.0f,
                     $"{animator.gameObject.name}_HSVG_Sat_2");
 
-                var tree = CreateCentered1DBT(ctx, animator.saturationParameterName,
-                    clipMin, clipBase, clipMax, $"HSVG_Sat_{animator.saturationParameterName}");
+                var tree = CreateCentered1DBT(ctx, animator.GetEffectiveSaturationParameterName(),
+                    clipMin, clipBase, clipMax, $"HSVG_Sat_{animator.GetEffectiveSaturationParameterName()}");
 
-                result.Add((animator.saturationParameterName, tree));
+                result.Add((animator.GetEffectiveSaturationParameterName(), tree));
             }
 
             if (animator.enableValue)
@@ -343,10 +343,10 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 var clipMax = CreateHSVGComponentClipAbsolute(ctx, targets, "z", 2.0f,
                     $"{animator.gameObject.name}_HSVG_Val_2");
 
-                var tree = CreateCentered1DBT(ctx, animator.valueParameterName,
-                    clipMin, clipBase, clipMax, $"HSVG_Val_{animator.valueParameterName}");
+                var tree = CreateCentered1DBT(ctx, animator.GetEffectiveValueParameterName(),
+                    clipMin, clipBase, clipMax, $"HSVG_Val_{animator.GetEffectiveValueParameterName()}");
 
-                result.Add((animator.valueParameterName, tree));
+                result.Add((animator.GetEffectiveValueParameterName(), tree));
             }
 
             return result;
@@ -537,11 +537,11 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
 
             // 有効な軸のパラメータを追加
             if (animator.enableHue)
-                controller.AddParameter(animator.hueParameterName, AnimatorControllerParameterType.Float);
+                controller.AddParameter(animator.GetEffectiveHueParameterName(), AnimatorControllerParameterType.Float);
             if (animator.enableSaturation)
-                controller.AddParameter(animator.saturationParameterName, AnimatorControllerParameterType.Float);
+                controller.AddParameter(animator.GetEffectiveSaturationParameterName(), AnimatorControllerParameterType.Float);
             if (animator.enableValue)
-                controller.AddParameter(animator.valueParameterName, AnimatorControllerParameterType.Float);
+                controller.AddParameter(animator.GetEffectiveValueParameterName(), AnimatorControllerParameterType.Float);
 
             controller.layers = layers.ToArray();
 
@@ -572,11 +572,11 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             {
                 maParameters.parameters.Add(new ParameterConfig
                 {
-                    nameOrPrefix = animator.hueParameterName,
+                    nameOrPrefix = animator.GetEffectiveHueParameterName(),
                     syncType = ParameterSyncType.Float,
                     defaultValue = defaultHue,
-                    saved = animator.saved,
-                    localOnly = !animator.synced
+                    saved = animator.hueSaved,
+                    localOnly = !animator.hueSynced
                 });
             }
 
@@ -584,11 +584,11 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             {
                 maParameters.parameters.Add(new ParameterConfig
                 {
-                    nameOrPrefix = animator.saturationParameterName,
+                    nameOrPrefix = animator.GetEffectiveSaturationParameterName(),
                     syncType = ParameterSyncType.Float,
                     defaultValue = defaultSat,
-                    saved = animator.saved,
-                    localOnly = !animator.synced
+                    saved = animator.saturationSaved,
+                    localOnly = !animator.saturationSynced
                 });
             }
 
@@ -596,11 +596,11 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             {
                 maParameters.parameters.Add(new ParameterConfig
                 {
-                    nameOrPrefix = animator.valueParameterName,
+                    nameOrPrefix = animator.GetEffectiveValueParameterName(),
                     syncType = ParameterSyncType.Float,
                     defaultValue = defaultVal,
-                    saved = animator.saved,
-                    localOnly = !animator.synced
+                    saved = animator.valueSaved,
+                    localOnly = !animator.valueSynced
                 });
             }
 
@@ -610,15 +610,19 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             if (enabledCount == 1)
             {
                 // 単一軸: 親に直接 RadialPuppet
-                string paramName = animator.enableHue ? animator.hueParameterName
-                    : animator.enableSaturation ? animator.saturationParameterName
-                    : animator.valueParameterName;
+                string paramName = animator.enableHue ? animator.GetEffectiveHueParameterName()
+                    : animator.enableSaturation ? animator.GetEffectiveSaturationParameterName()
+                    : animator.GetEffectiveValueParameterName();
+
+                Texture2D icon = animator.enableHue ? animator.hueMenuIcon
+                    : animator.enableSaturation ? animator.saturationMenuIcon
+                    : animator.valueMenuIcon;
 
                 var menuItem = gameObject.AddComponent<ModularAvatarMenuItem>();
                 menuItem.Control = new VRCExpressionsMenu.Control
                 {
                     name = animator.gameObject.name,
-                    icon = animator.menuIcon,
+                    icon = icon,
                     type = VRCExpressionsMenu.Control.ControlType.RadialPuppet,
                     subParameters = new[]
                     {
@@ -633,21 +637,21 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 subMenu.Control = new VRCExpressionsMenu.Control
                 {
                     name = animator.gameObject.name,
-                    icon = animator.menuIcon,
+                    icon = animator.parentMenuIcon,
                     type = VRCExpressionsMenu.Control.ControlType.SubMenu
                 };
                 subMenu.MenuSource = SubmenuSource.Children;
 
                 if (animator.enableHue)
-                    CreateChildMenuItem(gameObject, "色相", animator.hueParameterName);
+                    CreateChildMenuItem(gameObject, "色相", animator.GetEffectiveHueParameterName(), animator.hueMenuIcon);
                 if (animator.enableSaturation)
-                    CreateChildMenuItem(gameObject, "彩度", animator.saturationParameterName);
+                    CreateChildMenuItem(gameObject, "彩度", animator.GetEffectiveSaturationParameterName(), animator.saturationMenuIcon);
                 if (animator.enableValue)
-                    CreateChildMenuItem(gameObject, "明度", animator.valueParameterName);
+                    CreateChildMenuItem(gameObject, "明度", animator.GetEffectiveValueParameterName(), animator.valueMenuIcon);
             }
         }
 
-        private void CreateChildMenuItem(GameObject parent, string displayName, string parameterName)
+        private void CreateChildMenuItem(GameObject parent, string displayName, string parameterName, Texture2D icon)
         {
             var child = new GameObject(displayName);
             child.transform.SetParent(parent.transform);
@@ -656,6 +660,7 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             menuItem.Control = new VRCExpressionsMenu.Control
             {
                 name = displayName,
+                icon = icon,
                 type = VRCExpressionsMenu.Control.ControlType.RadialPuppet,
                 subParameters = new[]
                 {

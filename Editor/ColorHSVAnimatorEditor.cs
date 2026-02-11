@@ -14,13 +14,20 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
         private SerializedProperty enableHue;
         private SerializedProperty hueSteps;
         private SerializedProperty hueParameterName;
+        private SerializedProperty hueSaved;
+        private SerializedProperty hueSynced;
+        private SerializedProperty hueMenuIcon;
         private SerializedProperty enableSaturation;
         private SerializedProperty saturationParameterName;
+        private SerializedProperty saturationSaved;
+        private SerializedProperty saturationSynced;
+        private SerializedProperty saturationMenuIcon;
         private SerializedProperty enableValue;
         private SerializedProperty valueParameterName;
-        private SerializedProperty saved;
-        private SerializedProperty synced;
-        private SerializedProperty menuIcon;
+        private SerializedProperty valueSaved;
+        private SerializedProperty valueSynced;
+        private SerializedProperty valueMenuIcon;
+        private SerializedProperty parentMenuIcon;
 
         private ReorderableList targetsList;
 
@@ -74,13 +81,20 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             enableHue = serializedObject.FindProperty("enableHue");
             hueSteps = serializedObject.FindProperty("hueSteps");
             hueParameterName = serializedObject.FindProperty("hueParameterName");
+            hueSaved = serializedObject.FindProperty("hueSaved");
+            hueSynced = serializedObject.FindProperty("hueSynced");
+            hueMenuIcon = serializedObject.FindProperty("hueMenuIcon");
             enableSaturation = serializedObject.FindProperty("enableSaturation");
             saturationParameterName = serializedObject.FindProperty("saturationParameterName");
+            saturationSaved = serializedObject.FindProperty("saturationSaved");
+            saturationSynced = serializedObject.FindProperty("saturationSynced");
+            saturationMenuIcon = serializedObject.FindProperty("saturationMenuIcon");
             enableValue = serializedObject.FindProperty("enableValue");
             valueParameterName = serializedObject.FindProperty("valueParameterName");
-            saved = serializedObject.FindProperty("saved");
-            synced = serializedObject.FindProperty("synced");
-            menuIcon = serializedObject.FindProperty("menuIcon");
+            valueSaved = serializedObject.FindProperty("valueSaved");
+            valueSynced = serializedObject.FindProperty("valueSynced");
+            valueMenuIcon = serializedObject.FindProperty("valueMenuIcon");
+            parentMenuIcon = serializedObject.FindProperty("parentMenuIcon");
 
             targetsList = new ReorderableList(serializedObject, targetsProp, true, true, true, true);
             targetsList.drawHeaderCallback = DrawTargetsHeader;
@@ -165,6 +179,13 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                             MessageType.None);
                     }
                     EditorGUILayout.PropertyField(hueParameterName, new GUIContent("パラメータ名"));
+                    if (string.IsNullOrWhiteSpace(animator.hueParameterName))
+                    {
+                        EditorGUILayout.HelpBox($"自動生成: {animator.GetEffectiveHueParameterName()}", MessageType.Info);
+                    }
+                    EditorGUILayout.PropertyField(hueSaved, new GUIContent("パラメータを保存"));
+                    EditorGUILayout.PropertyField(hueSynced, new GUIContent("パラメータを同期"));
+                    EditorGUILayout.PropertyField(hueMenuIcon, new GUIContent("メニューアイコン"));
                 });
 
             // 彩度
@@ -174,6 +195,13 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 () =>
                 {
                     EditorGUILayout.PropertyField(saturationParameterName, new GUIContent("パラメータ名"));
+                    if (string.IsNullOrWhiteSpace(animator.saturationParameterName))
+                    {
+                        EditorGUILayout.HelpBox($"自動生成: {animator.GetEffectiveSaturationParameterName()}", MessageType.Info);
+                    }
+                    EditorGUILayout.PropertyField(saturationSaved, new GUIContent("パラメータを保存"));
+                    EditorGUILayout.PropertyField(saturationSynced, new GUIContent("パラメータを同期"));
+                    EditorGUILayout.PropertyField(saturationMenuIcon, new GUIContent("メニューアイコン"));
                 });
 
             // 明度
@@ -183,17 +211,25 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 () =>
                 {
                     EditorGUILayout.PropertyField(valueParameterName, new GUIContent("パラメータ名"));
+                    if (string.IsNullOrWhiteSpace(animator.valueParameterName))
+                    {
+                        EditorGUILayout.HelpBox($"自動生成: {animator.GetEffectiveValueParameterName()}", MessageType.Info);
+                    }
+                    EditorGUILayout.PropertyField(valueSaved, new GUIContent("パラメータを保存"));
+                    EditorGUILayout.PropertyField(valueSynced, new GUIContent("パラメータを同期"));
+                    EditorGUILayout.PropertyField(valueMenuIcon, new GUIContent("メニューアイコン"));
                 });
 
             EditorGUILayout.Space();
 
-            // 共通設定
-            EditorGUILayout.LabelField("共通設定", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(saved, new GUIContent("パラメータを保存"));
-            EditorGUILayout.PropertyField(synced, new GUIContent("パラメータを同期"));
-            EditorGUILayout.PropertyField(menuIcon, new GUIContent("メニューアイコン"));
-
-            EditorGUILayout.Space();
+            // 親メニュー設定（2つ以上の軸が有効な場合のみ表示）
+            if (animator.EnabledAxisCount > 1)
+            {
+                EditorGUILayout.LabelField("親メニュー設定", EditorStyles.boldLabel);
+                EditorGUILayout.PropertyField(parentMenuIcon, new GUIContent("親メニューアイコン"));
+                EditorGUILayout.HelpBox("複数軸が有効な場合、サブメニューが作成されます。", MessageType.Info);
+                EditorGUILayout.Space();
+            }
 
             // 検証結果
             DrawValidationResult(animator);
