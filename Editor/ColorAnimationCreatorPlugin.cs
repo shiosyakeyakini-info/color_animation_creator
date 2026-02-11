@@ -387,6 +387,7 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
 
         /// <summary>
         /// HSVG用: 共通関数 - valueFunc で各ターゲットの値を計算
+        /// 無効な軸も baseHSVG 値でクリップに含める（標準値: Hue=0, Sat/Val=1）
         /// Gamma(.w)は常に1.0を含める（WD ON環境でのリセット防止）
         /// </summary>
         private AnimationClip CreateHSVGComponentClipFunc(
@@ -422,11 +423,23 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 // 対象コンポーネントの値をセット
                 SetConstantCurve(clip, target.path, $"{propertyPrefix}.{component}", finalValue, duration);
 
-                // Gamma(.w)を常に1.0でセット（WD ON時に0にリセットされるのを防止）
-                if (component != "w")
+                // 他のコンポーネント(.x, .y, .z)も baseHSVG 値でセット（無効な軸も正しい値になるように）
+                // これにより、色相のみ有効な場合でも .y=baseS, .z=baseV が保持される
+                if (component != "x")
                 {
-                    SetConstantCurve(clip, target.path, $"{propertyPrefix}.w", 1.0f, duration);
+                    SetConstantCurve(clip, target.path, $"{propertyPrefix}.x", target.baseHSVG.x, duration);
                 }
+                if (component != "y")
+                {
+                    SetConstantCurve(clip, target.path, $"{propertyPrefix}.y", target.baseHSVG.y, duration);
+                }
+                if (component != "z")
+                {
+                    SetConstantCurve(clip, target.path, $"{propertyPrefix}.z", target.baseHSVG.z, duration);
+                }
+
+                // Gamma(.w)を常に1.0でセット（WD ON時に0にリセットされるのを防止）
+                SetConstantCurve(clip, target.path, $"{propertyPrefix}.w", 1.0f, duration);
             }
 
             ctx.AssetSaver.SaveAsset(clip);

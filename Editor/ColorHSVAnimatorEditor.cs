@@ -179,10 +179,6 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                             MessageType.None);
                     }
                     EditorGUILayout.PropertyField(hueParameterName, new GUIContent("パラメータ名"));
-                    if (string.IsNullOrWhiteSpace(animator.hueParameterName))
-                    {
-                        EditorGUILayout.HelpBox($"自動生成: {animator.GetEffectiveHueParameterName()}", MessageType.Info);
-                    }
                     EditorGUILayout.PropertyField(hueSaved, new GUIContent("パラメータを保存"));
                     EditorGUILayout.PropertyField(hueSynced, new GUIContent("パラメータを同期"));
                     EditorGUILayout.PropertyField(hueMenuIcon, new GUIContent("メニューアイコン"));
@@ -195,10 +191,6 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 () =>
                 {
                     EditorGUILayout.PropertyField(saturationParameterName, new GUIContent("パラメータ名"));
-                    if (string.IsNullOrWhiteSpace(animator.saturationParameterName))
-                    {
-                        EditorGUILayout.HelpBox($"自動生成: {animator.GetEffectiveSaturationParameterName()}", MessageType.Info);
-                    }
                     EditorGUILayout.PropertyField(saturationSaved, new GUIContent("パラメータを保存"));
                     EditorGUILayout.PropertyField(saturationSynced, new GUIContent("パラメータを同期"));
                     EditorGUILayout.PropertyField(saturationMenuIcon, new GUIContent("メニューアイコン"));
@@ -211,10 +203,6 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 () =>
                 {
                     EditorGUILayout.PropertyField(valueParameterName, new GUIContent("パラメータ名"));
-                    if (string.IsNullOrWhiteSpace(animator.valueParameterName))
-                    {
-                        EditorGUILayout.HelpBox($"自動生成: {animator.GetEffectiveValueParameterName()}", MessageType.Info);
-                    }
                     EditorGUILayout.PropertyField(valueSaved, new GUIContent("パラメータを保存"));
                     EditorGUILayout.PropertyField(valueSynced, new GUIContent("パラメータを同期"));
                     EditorGUILayout.PropertyField(valueMenuIcon, new GUIContent("メニューアイコン"));
