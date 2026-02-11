@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using nadena.dev.modular_avatar.core;
 using nadena.dev.ndmf;
@@ -16,6 +17,18 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
     {
         public override string QualifiedName => "com.shiosyakeyakini.coloranimationcreator";
         public override string DisplayName => "Color Animation Creator";
+
+        private struct ResolvedTarget
+        {
+            public string path;
+            public int materialIndex;
+            public string colorPropertyName;
+            public bool isHSVG;
+            // Color モード用
+            public float baseH, baseS, baseV;
+            // HSVG モード用
+            public Vector4 baseHSVG;
+        }
 
         protected override void Configure()
         {
@@ -43,114 +56,190 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
 
                 ProcessAnimator(ctx, animator);
 
-                Object.DestroyImmediate(animator);
+                UnityEngine.Object.DestroyImmediate(animator);
             }
         }
 
         private void ProcessAnimator(BuildContext ctx, ColorHSVAnimator animator)
         {
-            // ベース色を取得して HSV に分解
-            var material = animator.targetRenderer.sharedMaterials[animator.materialIndex];
-            Color baseColor = material.GetColor(animator.colorPropertyName);
-            Color.RGBToHSV(baseColor, out float baseH, out float baseS, out float baseV);
+            // 全ターゲットを解決し、Color/HSVGに分類
+            var colorTargets = new List<ResolvedTarget>();
+            var hsvgTargets = new List<ResolvedTarget>();
 
-            string path = GetRelativePath(ctx.AvatarRootTransform, animator.targetRenderer.transform);
+            foreach (var target in animator.targets)
+            {
+                var material = target.renderer.sharedMaterials[target.materialIndex];
+                string path = GetRelativePath(ctx.AvatarRootTransform, target.renderer.transform);
+                bool isHSVG = target.IsHSVG;
 
-            // clipS, clipV: 外側レイヤーが担当する軸は 1.0 にする
-            float clipS = animator.enableSaturation ? 1.0f : baseS;
-            float clipV = animator.enableValue ? 1.0f : baseV;
+                var rt = new ResolvedTarget
+                {
+                    path = path,
+                    materialIndex = target.materialIndex,
+                    colorPropertyName = target.colorPropertyName,
+                    isHSVG = isHSVG
+                };
 
-            // Blend Tree を内側から構築
-            Motion rootMotion = BuildMotionTree(ctx, animator, path, baseH, baseS, baseV, clipS, clipV);
+                if (isHSVG)
+                {
+                    rt.baseHSVG = material.GetVector(target.colorPropertyName);
+                    hsvgTargets.Add(rt);
+                }
+                else
+                {
+                    Color baseColor = material.GetColor(target.colorPropertyName);
+                    Color.RGBToHSV(baseColor, out rt.baseH, out rt.baseS, out rt.baseV);
+                    colorTargets.Add(rt);
+                }
+            }
+
+            // レイヤーを構築
+            var layers = new List<AnimatorControllerLayer>();
+
+            // Color ターゲット用: ネストされた Blend Tree → 1レイヤー
+            if (colorTargets.Count > 0)
+            {
+                Motion colorMotion = BuildMotionTree(ctx, animator, colorTargets);
+                layers.Add(CreateLayer(ctx, $"ColorHSV_{animator.gameObject.name}", colorMotion));
+            }
+
+            // HSVG ターゲット用: 軸ごとに独立レイヤー
+            if (hsvgTargets.Count > 0)
+            {
+                var hsvgLayerMotions = BuildHSVGLayerMotions(ctx, animator, hsvgTargets);
+                foreach (var (paramName, motion) in hsvgLayerMotions)
+                {
+                    layers.Add(CreateLayer(ctx, $"HSVG_{paramName}", motion));
+                }
+            }
 
             // AnimatorController を作成
-            var controller = CreateAnimatorController(ctx, animator, rootMotion);
+            var controller = CreateAnimatorControllerFromLayers(ctx, animator, layers);
+
+            // デフォルトパラメータ値: 全軸 0.5（中央）= 変化なし
+            // Color: 3-child BT で param 0.5 = 元の色を再現
+            // HSVG: param 0.5 → Hue=0, Sat=1.0, Val=1.0 = 変化なし
+            float defaultHue = 0.5f;
+            float defaultSat = 0.5f;
+            float defaultVal = 0.5f;
 
             // MA コンポーネントを追加
-            SetupModularAvatarComponents(animator, controller, baseS, baseV);
+            SetupModularAvatarComponents(animator, controller, defaultHue, defaultSat, defaultVal);
 
-            Debug.Log($"[ColorAnimationCreator] Setup complete for '{animator.gameObject.name}'");
+            int totalTargets = colorTargets.Count + hsvgTargets.Count;
+            string modeDesc = colorTargets.Count > 0 && hsvgTargets.Count > 0 ? "Mixed"
+                : hsvgTargets.Count > 0 ? "HSVG" : "Color";
+            Debug.Log($"[ColorAnimationCreator] Setup complete for '{animator.gameObject.name}' ({modeDesc} mode) with {totalTargets} target(s), {layers.Count} layer(s)");
         }
 
         /// <summary>
-        /// ネストされた Blend Tree（または単一クリップ）を内側から構築する
+        /// ネストされた Blend Tree を構築する（全軸 param 0.5 = 元の色）
+        /// HSVToRGB(H, S, V) = V × lerp((1,1,1), PureHue(H), S) は S, V に対して双線形。
+        /// 3-child BT の区分線形補間で正確に再現できる。
         /// </summary>
         private Motion BuildMotionTree(
-            BuildContext ctx, ColorHSVAnimator animator, string path,
-            float baseH, float baseS, float baseV, float clipS, float clipV)
+            BuildContext ctx, ColorHSVAnimator animator, List<ResolvedTarget> targets)
         {
-            Motion innerMotion;
+            bool eSat = animator.enableSaturation;
+            bool eVal = animator.enableValue;
+            string name = animator.gameObject.name;
 
-            // Step 1: 最内 Motion — 色相 Blend Tree またはベース色クリップ
-            if (animator.enableHue)
+            if (eSat && eVal)
             {
-                innerMotion = CreateHueBlendTree(ctx, animator, path, baseH, clipS, clipV);
+                // 4つの内部 Motion（S×V の組み合わせ）
+                var m_bS_bV = CreateInnerHueOrBaseClip(ctx, animator, targets, true, true, "bSbV");
+                var m_fS_bV = CreateInnerHueOrBaseClip(ctx, animator, targets, false, true, "fSbV");
+                var m_bS_fV = CreateInnerHueOrBaseClip(ctx, animator, targets, true, false, "bSfV");
+                var m_fS_fV = CreateInnerHueOrBaseClip(ctx, animator, targets, false, false, "fSfV");
+
+                // グレー/白/黒クリップ
+                var grayBaseV = CreateMultiTargetColorClip(ctx, targets,
+                    t => { float v = t.baseV; return new Color(v, v, v); },
+                    $"{name}_GrayBaseV");
+                var white = CreateMultiTargetColorClip(ctx, targets,
+                    t => Color.white,
+                    $"{name}_White");
+                var black = CreateMultiTargetColorClip(ctx, targets,
+                    t => Color.black,
+                    $"{name}_Black");
+
+                // 彩度 BT × 2（明度レベル別）
+                var satBT_bV = CreateCentered1DBT(ctx, animator.saturationParameterName,
+                    grayBaseV, m_bS_bV, m_fS_bV, $"Sat_{animator.saturationParameterName}_baseV");
+                var satBT_fV = CreateCentered1DBT(ctx, animator.saturationParameterName,
+                    white, m_bS_fV, m_fS_fV, $"Sat_{animator.saturationParameterName}_fullV");
+
+                // 明度 BT
+                return CreateCentered1DBT(ctx, animator.valueParameterName,
+                    black, satBT_bV, satBT_fV, $"Value_{animator.valueParameterName}");
+            }
+            else if (eSat)
+            {
+                var m_bS = CreateInnerHueOrBaseClip(ctx, animator, targets, true, true, "bS");
+                var m_fS = CreateInnerHueOrBaseClip(ctx, animator, targets, false, true, "fS");
+                var gray = CreateMultiTargetColorClip(ctx, targets,
+                    t => { float v = t.baseV; return new Color(v, v, v); },
+                    $"{name}_Gray");
+
+                return CreateCentered1DBT(ctx, animator.saturationParameterName,
+                    gray, m_bS, m_fS, $"Sat_{animator.saturationParameterName}");
+            }
+            else if (eVal)
+            {
+                var m_bV = CreateInnerHueOrBaseClip(ctx, animator, targets, true, true, "bV");
+                var m_fV = CreateInnerHueOrBaseClip(ctx, animator, targets, true, false, "fV");
+                var black = CreateMultiTargetColorClip(ctx, targets,
+                    t => Color.black,
+                    $"{name}_Black");
+
+                return CreateCentered1DBT(ctx, animator.valueParameterName,
+                    black, m_bV, m_fV, $"Value_{animator.valueParameterName}");
             }
             else
             {
-                // 色相固定: ベース色のクリップ
-                Color fixedColor = Color.HSVToRGB(baseH, clipS, clipV, true);
-                innerMotion = CreateColorClip(ctx, path, animator.materialIndex, animator.colorPropertyName, fixedColor,
-                    $"{animator.gameObject.name}_BaseColor");
+                // 色相のみ or 全軸無効
+                return CreateInnerHueOrBaseClip(ctx, animator, targets, true, true, "base");
             }
-
-            // Step 2: 彩度レイヤーで包む
-            if (animator.enableSaturation)
-            {
-                float grayValue = animator.enableValue ? 1.0f : baseV;
-                Color grayColor = new Color(grayValue, grayValue, grayValue);
-                var grayClip = CreateColorClip(ctx, path, animator.materialIndex, animator.colorPropertyName, grayColor,
-                    $"{animator.gameObject.name}_Gray");
-
-                var satTree = new BlendTree
-                {
-                    name = $"Saturation_{animator.saturationParameterName}",
-                    blendType = BlendTreeType.Simple1D,
-                    blendParameter = animator.saturationParameterName,
-                    useAutomaticThresholds = false
-                };
-                satTree.AddChild(grayClip, 0f);
-                satTree.AddChild(innerMotion, 1f);
-                ctx.AssetSaver.SaveAsset(satTree);
-
-                innerMotion = satTree;
-            }
-
-            // Step 3: 明度レイヤーで包む
-            if (animator.enableValue)
-            {
-                var blackClip = CreateColorClip(ctx, path, animator.materialIndex, animator.colorPropertyName, Color.black,
-                    $"{animator.gameObject.name}_Black");
-
-                var valTree = new BlendTree
-                {
-                    name = $"Value_{animator.valueParameterName}",
-                    blendType = BlendTreeType.Simple1D,
-                    blendParameter = animator.valueParameterName,
-                    useAutomaticThresholds = false
-                };
-                valTree.AddChild(blackClip, 0f);
-                valTree.AddChild(innerMotion, 1f);
-                ctx.AssetSaver.SaveAsset(valTree);
-
-                innerMotion = valTree;
-            }
-
-            return innerMotion;
         }
 
         /// <summary>
-        /// 色相の 1D Blend Tree を作成する
+        /// 色相 BT（中央寄せ）またはベース色クリップを作成する
+        /// satAsBase: true → t.baseS を使用（元の彩度）、false → 1.0（全彩度）
+        /// valAsBase: true → t.baseV を使用（元の明度）、false → 1.0（全明度）
         /// </summary>
-        private BlendTree CreateHueBlendTree(
-            BuildContext ctx, ColorHSVAnimator animator, string path,
-            float baseH, float clipS, float clipV)
+        private Motion CreateInnerHueOrBaseClip(
+            BuildContext ctx, ColorHSVAnimator animator, List<ResolvedTarget> targets,
+            bool satAsBase, bool valAsBase, string suffix)
+        {
+            if (animator.enableHue)
+            {
+                return CreateCenteredHueBlendTree(ctx, animator, targets, satAsBase, valAsBase, suffix);
+            }
+            else
+            {
+                return CreateMultiTargetColorClip(ctx, targets,
+                    t =>
+                    {
+                        float s = satAsBase ? t.baseS : 1.0f;
+                        float v = valAsBase ? t.baseV : 1.0f;
+                        return Color.HSVToRGB(t.baseH, s, v, true);
+                    },
+                    $"{animator.gameObject.name}_Base_{suffix}");
+            }
+        }
+
+        /// <summary>
+        /// 色相の中央寄せ 1D Blend Tree（param 0.5 = ベース色相、オフセット -180°〜+180°）
+        /// </summary>
+        private BlendTree CreateCenteredHueBlendTree(
+            BuildContext ctx, ColorHSVAnimator animator, List<ResolvedTarget> targets,
+            bool satAsBase, bool valAsBase, string suffix)
         {
             int steps = animator.hueSteps;
 
             var hueTree = new BlendTree
             {
-                name = $"Hue_{animator.hueParameterName}",
+                name = $"Hue_{animator.hueParameterName}_{suffix}",
                 blendType = BlendTreeType.Simple1D,
                 blendParameter = animator.hueParameterName,
                 useAutomaticThresholds = false
@@ -158,14 +247,25 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
 
             for (int i = 0; i <= steps; i++)
             {
-                float hueOffset = (float)i / steps;
-                float currentHue = (baseH + hueOffset) % 1.0f;
-                Color color = Color.HSVToRGB(currentHue, clipS, clipV, true);
+                float threshold = (float)i / steps;
+                float hueShift = threshold - 0.5f; // -0.5 to +0.5
 
-                var clip = CreateColorClip(ctx, path, animator.materialIndex, animator.colorPropertyName, color,
-                    $"{animator.gameObject.name}_Hue_{i}");
+                // ラムダ内でキャプチャされる変数をローカルにコピー
+                float capturedShift = hueShift;
+                bool capSatBase = satAsBase;
+                bool capValBase = valAsBase;
 
-                hueTree.AddChild(clip, hueOffset);
+                var clip = CreateMultiTargetColorClip(ctx, targets,
+                    (t) =>
+                    {
+                        float s = capSatBase ? t.baseS : 1.0f;
+                        float v = capValBase ? t.baseV : 1.0f;
+                        float hue = ((t.baseH + capturedShift) % 1.0f + 1.0f) % 1.0f;
+                        return Color.HSVToRGB(hue, s, v, true);
+                    },
+                    $"{animator.gameObject.name}_Hue_{i}_{suffix}");
+
+                hueTree.AddChild(clip, threshold);
             }
 
             ctx.AssetSaver.SaveAsset(hueTree);
@@ -173,10 +273,111 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
         }
 
         /// <summary>
-        /// 単一キーフレームのポーズクリップを作成する
+        /// 3-child 中央寄せ 1D BlendTree（param 0 = min, 0.5 = 元の値, 1 = max）
         /// </summary>
-        private AnimationClip CreateColorClip(
-            BuildContext ctx, string path, int materialIndex, string colorPropertyName, Color color, string clipName)
+        private BlendTree CreateCentered1DBT(
+            BuildContext ctx, string paramName,
+            Motion child0, Motion child05, Motion child1, string name)
+        {
+            var bt = new BlendTree
+            {
+                name = name,
+                blendType = BlendTreeType.Simple1D,
+                blendParameter = paramName,
+                useAutomaticThresholds = false
+            };
+            bt.AddChild(child0, 0f);
+            bt.AddChild(child05, 0.5f);
+            bt.AddChild(child1, 1f);
+            ctx.AssetSaver.SaveAsset(bt);
+            return bt;
+        }
+
+        /// <summary>
+        /// HSVG用: 各有効軸に対して2-child 1D BlendTreeを構築する
+        /// </summary>
+        private List<(string paramName, BlendTree motion)> BuildHSVGLayerMotions(
+            BuildContext ctx, ColorHSVAnimator animator, List<ResolvedTarget> targets)
+        {
+            var result = new List<(string, BlendTree)>();
+
+            if (animator.enableHue)
+            {
+                // Hue: -0.5 ~ 0.5 (param 0→-0.5, param 0.5→0.0, param 1→0.5)
+                var clipMin = CreateHSVGComponentClip(ctx, targets, "x", -0.5f,
+                    $"{animator.gameObject.name}_HSVG_Hue_min");
+                var clipMax = CreateHSVGComponentClip(ctx, targets, "x", 0.5f,
+                    $"{animator.gameObject.name}_HSVG_Hue_max");
+
+                var tree = new BlendTree
+                {
+                    name = $"HSVG_Hue_{animator.hueParameterName}",
+                    blendType = BlendTreeType.Simple1D,
+                    blendParameter = animator.hueParameterName,
+                    useAutomaticThresholds = false
+                };
+                tree.AddChild(clipMin, 0f);
+                tree.AddChild(clipMax, 1f);
+                ctx.AssetSaver.SaveAsset(tree);
+
+                result.Add((animator.hueParameterName, tree));
+            }
+
+            if (animator.enableSaturation)
+            {
+                var clipMin = CreateHSVGComponentClip(ctx, targets, "y", 0.0f,
+                    $"{animator.gameObject.name}_HSVG_Sat_0");
+                var clipMax = CreateHSVGComponentClip(ctx, targets, "y", 2.0f,
+                    $"{animator.gameObject.name}_HSVG_Sat_2");
+
+                var tree = new BlendTree
+                {
+                    name = $"HSVG_Sat_{animator.saturationParameterName}",
+                    blendType = BlendTreeType.Simple1D,
+                    blendParameter = animator.saturationParameterName,
+                    useAutomaticThresholds = false
+                };
+                tree.AddChild(clipMin, 0f);
+                tree.AddChild(clipMax, 1f);
+                ctx.AssetSaver.SaveAsset(tree);
+
+                result.Add((animator.saturationParameterName, tree));
+            }
+
+            if (animator.enableValue)
+            {
+                var clipMin = CreateHSVGComponentClip(ctx, targets, "z", 0.0f,
+                    $"{animator.gameObject.name}_HSVG_Val_0");
+                var clipMax = CreateHSVGComponentClip(ctx, targets, "z", 2.0f,
+                    $"{animator.gameObject.name}_HSVG_Val_2");
+
+                var tree = new BlendTree
+                {
+                    name = $"HSVG_Val_{animator.valueParameterName}",
+                    blendType = BlendTreeType.Simple1D,
+                    blendParameter = animator.valueParameterName,
+                    useAutomaticThresholds = false
+                };
+                tree.AddChild(clipMin, 0f);
+                tree.AddChild(clipMax, 1f);
+                ctx.AssetSaver.SaveAsset(tree);
+
+                result.Add((animator.valueParameterName, tree));
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// HSVG用: 指定コンポーネント(.x/.y/.z)の値を全ターゲットにセットするクリップ
+        /// Gamma(.w)は常に1.0を含める（WD ON環境でのリセット防止）
+        /// </summary>
+        private AnimationClip CreateHSVGComponentClip(
+            BuildContext ctx,
+            List<ResolvedTarget> targets,
+            string component,
+            float value,
+            string clipName)
         {
             var clip = new AnimationClip
             {
@@ -184,29 +385,86 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 frameRate = 60f
             };
 
-            // materialIndex に応じたプロパティプレフィックスを決定
-            string propertyPrefix = materialIndex == 0
-                ? $"material.{colorPropertyName}"
-                : $"material[{materialIndex}].{colorPropertyName}";
+            float duration = 1f / clip.frameRate;
 
-            // ポーズクリップに 2 キーフレームを設定し、非ゼロ長を保証
+            foreach (var target in targets)
+            {
+                string propertyPrefix = target.materialIndex == 0
+                    ? $"material.{target.colorPropertyName}"
+                    : $"material[{target.materialIndex}].{target.colorPropertyName}";
+
+                // 対象コンポーネントの値をセット
+                SetConstantCurve(clip, target.path, $"{propertyPrefix}.{component}", value, duration);
+
+                // Gamma(.w)を常に1.0でセット（WD ON時に0にリセットされるのを防止）
+                if (component != "w")
+                {
+                    SetConstantCurve(clip, target.path, $"{propertyPrefix}.w", 1.0f, duration);
+                }
+            }
+
+            ctx.AssetSaver.SaveAsset(clip);
+            return clip;
+        }
+
+        private static void SetConstantCurve(
+            AnimationClip clip, string path, string propertyName, float value, float duration)
+        {
+            var binding = new EditorCurveBinding
+            {
+                path = path,
+                type = typeof(Renderer),
+                propertyName = propertyName
+            };
+            var curve = new AnimationCurve(
+                new Keyframe(0f, value),
+                new Keyframe(duration, value)
+            );
+            AnimationUtility.SetEditorCurve(clip, binding, curve);
+        }
+
+        /// <summary>
+        /// 全ターゲットのカーブを含むポーズクリップを作成する
+        /// </summary>
+        private AnimationClip CreateMultiTargetColorClip(
+            BuildContext ctx,
+            List<ResolvedTarget> targets,
+            Func<ResolvedTarget, Color> colorFunc,
+            string clipName)
+        {
+            var clip = new AnimationClip
+            {
+                name = clipName,
+                frameRate = 60f
+            };
+
             float duration = 1f / clip.frameRate;
             string[] channels = { ".r", ".g", ".b" };
-            float[] values = { color.r, color.g, color.b };
 
-            for (int ch = 0; ch < 3; ch++)
+            foreach (var target in targets)
             {
-                var binding = new EditorCurveBinding
+                Color color = colorFunc(target);
+                float[] values = { color.r, color.g, color.b };
+
+                // materialIndex に応じたプロパティプレフィックスを決定
+                string propertyPrefix = target.materialIndex == 0
+                    ? $"material.{target.colorPropertyName}"
+                    : $"material[{target.materialIndex}].{target.colorPropertyName}";
+
+                for (int ch = 0; ch < 3; ch++)
                 {
-                    path = path,
-                    type = typeof(Renderer),
-                    propertyName = propertyPrefix + channels[ch]
-                };
-                var curve = new AnimationCurve(
-                    new Keyframe(0f, values[ch]),
-                    new Keyframe(duration, values[ch])
-                );
-                AnimationUtility.SetEditorCurve(clip, binding, curve);
+                    var binding = new EditorCurveBinding
+                    {
+                        path = target.path,
+                        type = typeof(Renderer),
+                        propertyName = propertyPrefix + channels[ch]
+                    };
+                    var curve = new AnimationCurve(
+                        new Keyframe(0f, values[ch]),
+                        new Keyframe(duration, values[ch])
+                    );
+                    AnimationUtility.SetEditorCurve(clip, binding, curve);
+                }
             }
 
             ctx.AssetSaver.SaveAsset(clip);
@@ -214,10 +472,37 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
         }
 
         /// <summary>
-        /// AnimatorController を作成する（Blend Tree を motion に割り当て）
+        /// Motion を1つのレイヤーにまとめる
         /// </summary>
-        private AnimatorController CreateAnimatorController(
-            BuildContext ctx, ColorHSVAnimator animator, Motion rootMotion)
+        private AnimatorControllerLayer CreateLayer(BuildContext ctx, string layerName, Motion motion)
+        {
+            var stateMachine = new AnimatorStateMachine
+            {
+                name = layerName,
+                hideFlags = HideFlags.HideInHierarchy
+            };
+
+            var state = stateMachine.AddState("ColorControl");
+            state.motion = motion;
+            state.writeDefaultValues = false;
+            stateMachine.defaultState = state;
+
+            ctx.AssetSaver.SaveAsset(state);
+            ctx.AssetSaver.SaveAsset(stateMachine);
+
+            return new AnimatorControllerLayer
+            {
+                name = layerName,
+                defaultWeight = 1f,
+                stateMachine = stateMachine
+            };
+        }
+
+        /// <summary>
+        /// 複数レイヤーから AnimatorController を作成する
+        /// </summary>
+        private AnimatorController CreateAnimatorControllerFromLayers(
+            BuildContext ctx, ColorHSVAnimator animator, List<AnimatorControllerLayer> layers)
         {
             var controller = new AnimatorController
             {
@@ -232,33 +517,9 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             if (animator.enableValue)
                 controller.AddParameter(animator.valueParameterName, AnimatorControllerParameterType.Float);
 
-            var stateMachine = new AnimatorStateMachine
-            {
-                name = $"ColorHSV_{animator.gameObject.name}",
-                hideFlags = HideFlags.HideInHierarchy
-            };
+            controller.layers = layers.ToArray();
 
-            var state = stateMachine.AddState("ColorControl");
-            state.motion = rootMotion;
-            state.writeDefaultValues = false;
-
-            // defaultState を明示的に設定（AddState が設定しないケースへの対策）
-            stateMachine.defaultState = state;
-
-            var layer = new AnimatorControllerLayer
-            {
-                name = $"ColorHSV_{animator.gameObject.name}",
-                defaultWeight = 1f,
-                stateMachine = stateMachine
-            };
-
-            controller.layers = new[] { layer };
-
-            // 依存される側から先に保存（参照の整合性を保証）
-            ctx.AssetSaver.SaveAsset(state);
-            ctx.AssetSaver.SaveAsset(stateMachine);
             ctx.AssetSaver.SaveAsset(controller);
-
             return controller;
         }
 
@@ -266,7 +527,8 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
         /// MA コンポーネントを追加する（メニュー分岐含む）
         /// </summary>
         private void SetupModularAvatarComponents(
-            ColorHSVAnimator animator, AnimatorController controller, float baseS, float baseV)
+            ColorHSVAnimator animator, AnimatorController controller,
+            float defaultHue, float defaultSat, float defaultVal)
         {
             var gameObject = animator.gameObject;
 
@@ -289,7 +551,7 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 {
                     nameOrPrefix = animator.hueParameterName,
                     syncType = ParameterSyncType.Float,
-                    defaultValue = 0f,
+                    defaultValue = defaultHue,
                     saved = animator.saved,
                     localOnly = !animator.synced
                 });
@@ -301,7 +563,7 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 {
                     nameOrPrefix = animator.saturationParameterName,
                     syncType = ParameterSyncType.Float,
-                    defaultValue = baseS,
+                    defaultValue = defaultSat,
                     saved = animator.saved,
                     localOnly = !animator.synced
                 });
@@ -313,7 +575,7 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
                 {
                     nameOrPrefix = animator.valueParameterName,
                     syncType = ParameterSyncType.Float,
-                    defaultValue = baseV,
+                    defaultValue = defaultVal,
                     saved = animator.saved,
                     localOnly = !animator.synced
                 });

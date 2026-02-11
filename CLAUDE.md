@@ -2,7 +2,7 @@
 
 ## プロジェクト概要
 
-VRChat向けのNDMFプラグイン。liltoonシェーダーの任意の色プロパティ（Color型）に対して、色相・彩度・明度をRadial Menuで独立制御するアニメーションをビルド時に自動生成する。
+VRChat向けのNDMFプラグイン。liltoonシェーダーの任意の色プロパティ（Color型）およびHSVGプロパティ（Vector4型: `_MainTexHSVG`, `_OutlineTexHSVG`）に対して、色相・彩度・明度をRadial Menuで独立制御するアニメーションをビルド時に自動生成する。
 
 ## 技術スタック
 
@@ -13,13 +13,16 @@ VRChat向けのNDMFプラグイン。liltoonシェーダーの任意の色プロ
 
 ## アーキテクチャ
 
-### コンポーネント: ColorHSVAnimator
+### データ構造
 
 ```
-ColorHSVAnimator (MonoBehaviour, IEditorOnly)
-├── targetRenderer: Renderer
+MaterialColorTarget (Serializable)
+├── renderer: Renderer
 ├── materialIndex: int
-├── colorPropertyName: string (例: "_EmissionColor")
+└── colorPropertyName: string (例: "_EmissionColor")
+
+ColorHSVAnimator (MonoBehaviour, IEditorOnly)
+├── targets: List<MaterialColorTarget>  ← 複数マテリアルを同時制御
 │
 ├── enableHue: bool (default: true)
 ├── hueSteps: int (8-72, default: 36)
@@ -36,6 +39,19 @@ ColorHSVAnimator (MonoBehaviour, IEditorOnly)
 └── menuIcon: Texture2D
 ```
 
+### 複数マテリアル対応
+
+- 1つのコンポーネントで複数の Renderer/マテリアルスロット/色プロパティを同時に制御
+- Color型とHSVG型のターゲットを同一コンポーネント内で混在可能
+- 全ターゲットが同じ HSV パラメータで連動して色変更される
+- 各ターゲットは独自の baseH/baseS/baseV を持ち、色相オフセットは各自の基準から適用
+- デフォルトパラメータ値: 全軸 0.5 で統一（Color: 3-child centered BT, HSVG: 線形マッピング中央）
+
+### 旧データからのマイグレーション
+
+旧フィールド（`targetRenderer`, `materialIndex`, `colorPropertyName`）は `[SerializeField, HideInInspector]` として保持。
+エディタの `OnEnable()` で `_migrated` フラグを確認し、未移行の場合は `targets` リストへ自動移行。
+
 ### HSV→RGB の数学的分解
 
 HSV→RGB変換は以下のように線形分解可能:
@@ -44,34 +60,73 @@ HSV→RGB変換は以下のように線形分解可能:
 HSVToRGB(H, S, V) = V × lerp( (1,1,1), PureHue(H), S )
 ```
 
-これをネストされた1D Blend Treeで厳密に再現:
+HSVToRGB は S, V に対して双線形（bilinear）であるため、3-child の区分線形 BlendTree で正確に再現できる。
+
+全軸 **param 0.5 = 元の色（変化なし）** で統一。Color/HSVG 混在時もパラメータを共有可能:
 
 ```
-1D BT (Value param, 0→1)
-  ├── threshold 0: 黒クリップ (0,0,0)
-  └── threshold 1: 1D BT (Saturation param, 0→1)
-       ├── threshold 0: 白クリップ (1,1,1)
-       └── threshold 1: 1D BT (Hue param, 0→1)
-            ├── threshold 0/N: PureHue(baseH + 0°)
-            ├── threshold 1/N: PureHue(baseH + 10°)
-            │   ...
-            └── threshold N/N: PureHue(baseH + 360°)
+1D BT (Value param, 0→1) — 3-child centered
+  ├── threshold 0:   黒クリップ (0,0,0)
+  ├── threshold 0.5: 1D BT (Saturation, baseV レベル) — 3-child centered
+  │    ├── threshold 0:   グレー (baseV, baseV, baseV)
+  │    ├── threshold 0.5: Hue BT (baseS, baseV) ← 元の色
+  │    └── threshold 1:   Hue BT (fullS=1, baseV)
+  └── threshold 1:   1D BT (Saturation, fullV レベル) — 3-child centered
+       ├── threshold 0:   白 (1,1,1)
+       ├── threshold 0.5: Hue BT (baseS, fullV=1)
+       └── threshold 1:   Hue BT (fullS=1, fullV=1)
+
+Hue BT (中央寄せ, param 0→1):
+  ├── threshold 0/N:   HSVToRGB(baseH - 180°, clipS, clipV)
+  ├── threshold 0.5:   HSVToRGB(baseH + 0°, clipS, clipV) ← 元の色相
+  │   ...
+  └── threshold N/N:   HSVToRGB(baseH + 180°, clipS, clipV)
 ```
 
 近似ではなく厳密解。色相サンプリング間のRGB補間のみが近似要素。
+Sat/Val 有効時はクリップ数が最大 4×(hueSteps+1) + 3 になる。
+
+### HSVGプロパティの独立レイヤー方式
+
+`_MainTexHSVG` / `_OutlineTexHSVG` はVector4型で、各コンポーネント（.x=Hue, .y=Saturation, .z=Value, .w=Gamma）が独立している。RGB用のネスト構造ではクロス補間問題が発生するため、軸ごとに独立したAnimatorレイヤーを使用:
+
+```
+AnimatorController
+├── Layer "HSVG_{hueParam}"  ← Hue (.x): -0.5~0.5
+│   └── 1D BT (2 children: clip(.x=-0.5), clip(.x=0.5))
+├── Layer "HSVG_{satParam}"  ← Saturation (.y): 0.0~2.0
+│   └── 1D BT (2 children: clip(.y=0), clip(.y=2))
+└── Layer "HSVG_{valParam}"  ← Value (.z): 0.0~2.0
+    └── 1D BT (2 children: clip(.z=0), clip(.z=2))
+```
+
+- 各レイヤーは `writeDefaultValues = false` で、未制御コンポーネント（.w Gamma等）はマテリアルデフォルトを保持
+- 線形補間が正確なため、色相も2クリップで十分（RGB方式の37+クリップ不要）
+- デフォルト値: 全軸 0.5（Color/HSVG 共通。param 0.5 = 変化なし）
+- ColorターゲットとHSVGターゲットは同一コンポーネント内で混在可能（別レイヤーで共存）
+- EditorCurveBinding: Color型は `.r/.g/.b`、Vector4型は `.x/.y/.z/.w`
 
 ### クリップ内の色の決定ルール
 
-外側レイヤーが担当する軸は内側クリップで1.0に固定:
-- `clipS` = enableSaturation ? 1.0 : baseS
-- `clipV` = enableValue ? 1.0 : baseV
-- グレークリップ = enableValue ? (1,1,1) : (baseV, baseV, baseV)
+3-child centered BT 方式により、各軸の param 0.5 = 元の色:
+- 彩度 BT: threshold 0 (gray), 0.5 (baseS hue motion), 1.0 (fullS=1 hue motion)
+- 明度 BT: threshold 0 (black), 0.5 (baseV sat motion), 1.0 (fullV=1 sat motion)
+- 色相 BT: 中央寄せ（param 0.5 = baseH、-180°〜+180°の範囲でサンプリング）
+
+外側の軸が無効な場合、内側クリップに baseS/baseV をベイク。有効な軸の組み合わせで内部 Motion 数が変わる:
+- Hue のみ: 1 hue BT
+- Sat のみ: 3-child BT (gray, baseClip, fullSatClip)
+- Hue + Sat: 3-child BT 内に 2 hue BTs
+- Hue + Sat + Val: 2 × 3-child BT 内に 4 hue BTs
+
+各クリップは `CreateMultiTargetColorClip()` で生成され、全ターゲット分の AnimationCurve を1つのクリップに含める。
 
 ### デフォルトパラメータ値
 
-- Hue: 0 (オフセットなし → ベース色相)
-- Saturation: baseS (ベース色の彩度 → 元の色を再現)
-- Value: baseV (ベース色の明度 → 元の色を再現)
+全軸 **0.5** で統一（Color / HSVG 共通）:
+- param 0.5 = 変化なし（元の色を再現）
+- Color: 3-child BT の中央ポイントで元の baseH/baseS/baseV を再現
+- HSVG: param 0.5 → Hue=0, Sat=1.0, Val=1.0（liltoon デフォルト）
 
 ### メニュー構造の分岐
 
@@ -91,11 +146,11 @@ Transforming Phase:
 ```
 ColorAnimationCreator/
 ├── Runtime/
-│   ├── ColorHSVAnimator.cs                # ユーザー向けコンポーネント
+│   ├── ColorHSVAnimator.cs                # MaterialColorTarget + ColorHSVAnimator
 │   └── ColorAnimationCreator.Runtime.asmdef
 ├── Editor/
-│   ├── ColorAnimationCreatorPlugin.cs     # NDMFプラグイン（Blend Tree生成）
-│   ├── ColorHSVAnimatorEditor.cs          # カスタムインスペクター
+│   ├── ColorAnimationCreatorPlugin.cs     # NDMFプラグイン（複数ターゲット対応Blend Tree生成）
+│   ├── ColorHSVAnimatorEditor.cs          # カスタムインスペクター（ReorderableList UI）
 │   └── ColorAnimationCreator.Editor.asmdef
 ├── docs/
 │   ├── NDMF.md
@@ -109,9 +164,13 @@ ColorAnimationCreator/
 
 ### liltoonシェーダーの制約
 
-- `_MainTexHSVG`/`_OutlineTexHSVG`のみHSVG調整対応
+- `_MainTexHSVG`/`_OutlineTexHSVG`: Vector4型のHSVG調整プロパティ（独立レイヤー方式で対応）
+  - X: Hue (-0.5 ~ 0.5 = -180° ~ +180°, 0.0 = 変化なし)
+  - Y: Saturation (0.0 ~ 2.0, 1.0 = 変化なし)
+  - Z: Value (0.0 ~ 2.0, 1.0 = 変化なし)
+  - W: Gamma (0.0 ~ 2.0, 未制御)
 - `_EmissionColor`等にはHSVGパラメータがないためRGB直接アニメーションが必要
-- 任意のColor型プロパティに対応
+- Color型とVector4(HSVG)型の両方に対応
 
 ### VRChatの制約
 
@@ -124,6 +183,12 @@ ColorAnimationCreator/
 - 各クリップは単一キーフレーム（ポーズクリップ）
 - `useAutomaticThresholds = false` を必ず設定
 - Blend Tree もアセットとして `AssetSaver.SaveAsset()` が必要
+
+### エディタ UI
+
+- IMGUI ベースの `ReorderableList` を使用（MA Material Setter 風）
+- 各エントリ: Renderer / マテリアルスロット(Popup) / 色プロパティ(liltoonプリセット) / バリデーション
+- ドラッグによる並び替え、+/- ボタンで追加・削除
 
 ## 参考資料
 
