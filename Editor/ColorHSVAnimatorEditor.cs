@@ -349,7 +349,20 @@ namespace ShioShakeYakiNi.ColorAnimationCreator.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 if (newIndex < DropdownPropertyNames.Length)
+                {
+                    // プリセットが選択された場合
                     colorPropNameProp.stringValue = DropdownPropertyNames[newIndex];
+                }
+                else
+                {
+                    // カスタムが選択された場合
+                    // 現在の値がプリセットにある場合のみ、空文字列に設定
+                    if (currentIndex >= 0)
+                    {
+                        colorPropNameProp.stringValue = "";
+                    }
+                    // 既にカスタム値の場合は何もしない（現在の値を保持）
+                }
             }
         }
 
